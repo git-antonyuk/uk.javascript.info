@@ -1,56 +1,56 @@
 
-# Event loop: microtasks and macrotasks
+# Цикл подій: мікрозадачі та макрозадачі
 
-Browser JavaScript execution flow, as well as in Node.js, is based on an *event loop*.
+Потік виконання JavaScript у браузері, так само як і в Node.js, базується на *циклі подій*.
 
-Understanding how event loop works is important for optimizations, and sometimes for the right architecture.
+Розуміння того, як працює цикл подій є важливим для оптимізації, а іноді для правильної архітектури.
 
-In this chapter we first cover theoretical details about how things work, and then see practical applications of that knowledge.
+У цьому розділі ми спочатку розглядаємо теоретичні деталі того, як все працює, а потім побачимо практичне застосування цих знань.
 
-## Event Loop
+## Цикл подій
 
-The *event loop* concept is very simple. There's an endless loop, where the JavaScript engine waits for tasks, executes them and then sleeps, waiting for more tasks.
+Концепція *циклу подій* дуже проста. Існує нескінченний цикл, у якому рушій JavaScript чекає на завдання, виконує їх, а потім перебуває в режимі сну, очікуючи на нові завдання.
 
-The general algorithm of the engine:
+Загальний алгоритм роботи рушія:
 
-1. While there are tasks:
-    - execute them, starting with the oldest task.
-2. Sleep until a task appears, then go to 1.
+1. Поки є завдання:
+    - виконуй їх, починаючи з найстарішого завдання.
+2. Очікуй в режимі сну допоки не з'явиться нове завдання, дали йди до першого пункту
 
-That's a formalization for what we see when browsing a page. The JavaScript engine does nothing most of the time, it only runs if a script/handler/event activates.
+Це формалізація того, що ми бачимо під час перегляду сторінки. Рушій JavaScript нічого не робить більшість часу, він запускається, лише якщо активується скрипт/обробник/подія.
 
-Examples of tasks:
+Приклади завдань:
 
-- When an external script `<script src="...">` loads, the task is to execute it.
-- When a user moves their mouse, the task is to dispatch `mousemove` event and execute handlers.
-- When the time is due for a scheduled `setTimeout`, the task is to run its callback.
-- ...and so on.
+- Коли завантажується зовнішній скрипт `<script src="...">`, завдання полягає в тому, щоб виконати його.
+- Коли користувач рухає мишкою, завдання полягає в тому, щоб відправити подію `mousemove` і виконати обробники.
+- Коли настає час для запланованого `setTimeout`, завдання полягає в тому, щоб запустити його колбек.
+- ...і так далі.
 
-Tasks are set -- the engine handles them -- then waits for more tasks (while sleeping and consuming close to zero CPU).
+Завдання встановлюються — система їх обробляє — потім чекає на інші завдання (під час сну центральний процесор майже не навантажується).
 
-It may happen that a task comes while the engine is busy, then it's enqueued.
+Може статися так, що завдання приходить, коли рушій зайнятий, тоді вона стає в чергу.
 
-The tasks form a queue, so-called "macrotask queue" (v8 term):
+Завдання утворюють чергу, так звану "чергу макрозадач" (macrotask queue, v8 термін).
 
 ![](eventLoop.svg)
 
-For instance, while the engine is busy executing a `script`, a user may move their mouse causing `mousemove`, and `setTimeout` may be due and so on, these tasks form a queue, as illustrated on the picture above.
+Наприклад, коли рушій зайнятий виконанням `script`, користувач може рухати мишкою, викликаючи подію `mousemove`, і може настати `setTimeout` і так далі, ці завдання утворюють чергу, як показано на малюнку вище.
 
-Tasks from the queue are processed on "first come – first served" basis. When the engine browser is done with the `script`, it handles `mousemove` event, then `setTimeout` handler, and so on.
+Завдання з черги обробляються за принципом "перший прийшов – першим виконано". Коли рушій браузера завершує роботу з `script`, він обробляє подію `mousemove`, потім обробник `setTimeout` і так далі.
 
-So far, quite simple, right?
+Поки що досить просто, чи не так?
 
-Two more details:
-1. Rendering never happens while the engine executes a task. It doesn't matter if the task takes a long time. Changes to the DOM are painted only after the task is complete.
-2. If a task takes too long, the browser can't do other tasks, such as processing user events. So after a time, it raises an alert like "Page Unresponsive", suggesting killing the task with the whole page. That happens when there are a lot of complex calculations or a programming error leading to an infinite loop.
+Ще дві деталі:
+1. Візуалізація ніколи не відбувається, поки рушій виконує завдання. Не має значення, якщо завдання займає багато часу. Зміни в DOM малюються тільки після того як завдання виконано.
+2. Якщо завдання виконується задовго, в цей самий час браузер не зможе виконувати інші завдання, наприклад обробку подій користувача. Тож через деякий час з’являється сповіщення на кшталт "Сторінка не відповідає", пропонуючи завершити завдання разом із усією сторінкою. Це може трапитись, коли є багато складних обчислень або помилка програмування, що призводить до нескінченного циклу.
 
-That was the theory. Now let's see how we can apply that knowledge.
+Це була теорія. Тепер давайте подивимося, як ми можемо застосувати ці знання.
 
-## Use-case 1: splitting CPU-hungry tasks
+## Випадок використання 1: поділ енергоємної задачі.
 
-Let's say we have a CPU-hungry task.
+Скажімо в нас є "тяжка" для центрального процесора задача.
 
-For example, syntax-highlighting (used to colorize code examples on this page) is quite CPU-heavy. To highlight the code, it performs the analysis, creates many colored elements, adds them to the document -- for a large amount of text that takes a lot of time.
+Наприклад, підсвічування синтаксису (використовується для розфарбовування прикладів коду на цій сторінці) це досить сильно навантажує ЦП. Щоб виділити код, він виконує аналіз, створює багато кольорових елементів, додає їх до документа сторінки — для великого обсягу тексту це займе багато часу.
 
 While the engine is busy with syntax highlighting, it can't do other DOM-related stuff, process user events, etc. It may even cause the browser to "hiccup" or even "hang" for a bit, which is unacceptable.
 
